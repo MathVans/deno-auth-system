@@ -11,6 +11,39 @@ Este projeto demonstra como implementar um sistema de autenticação usando Deno
 - Validação tipada com Zod
 - Persistência de dados com MySQL
 
+
+## Arquitetura do Projeto
+
+### Camadas
+
+O projeto segue uma arquitetura em camadas para melhor organização e separação de responsabilidades:
+
+1. **Controllers** - Recebem as requisições, validam dados de entrada e delegam para os serviços
+2. **Services** - Contêm a lógica de negócio e comunicam com o repositório de dados
+3. **Data Access** - Operações de banco de dados usando Drizzle ORM
+4. **Utilities** - Funções auxiliares como JWT e hash de senhas
+
+### Fluxo de Dados
+
+```
+Cliente -> Routes -> Controllers -> Services -> Database
+```
+
+### Estrutura de Diretórios
+
+```
+src/
+├── controllers/    # Processamento de requisições
+├── db/            # Configuração do banco e esquemas
+├── middleware/    # Interceptadores de requisição
+├── routes/        # Definição de rotas da API
+├── schemas/       # Esquemas Zod para validação
+├── services/      # Lógica de negócio
+├── utils/         # Utilitários como JWT e hash
+└── main.ts        # Ponto de entrada da aplicação
+```
+
+
 ## Pré-requisitos
 
 - Deno 2.0 ou superior

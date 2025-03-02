@@ -1,137 +1,150 @@
-import { Context } from "hono";
 import { db } from "../db/index.ts";
 import { users } from "../db/schema.ts";
 import { eq } from "drizzle-orm";
 import { hashPassword, verifyPassword } from "../utils/password.ts";
-import { createToken } from "../utils/jwt.ts";
-import { LoginInput, RegisterInput } from "../schemas/auth.ts";
-import { HTTPException } from "hono/http-exception";
+import { createToken, JWTPayload } from "../utils/jwt.ts";
 
-export async function register(c: Context) {
-  const data = await c.req.json<RegisterInput>();
-  const { username, email, password } = data;
+export interface RegisterUserInput {
+  username: string;
+  email: string;
+  password: string;
+}
 
-  try {
-    // Check if user already exists
+export interface LoginUserInput {
+  username: string;
+  password: string;
+}
+
+export interface AuthResult {
+  success: boolean;
+  message: string;
+  data?: {
+    id: number;
+    username: string;
+    email?: string;
+    createdAt?: Date;
+  };
+  token?: string;
+}
+
+export class AuthService {
+  /**
+   * Registra um novo usuário no sistema
+   */
+  async registerUser(input: RegisterUserInput): Promise<AuthResult> {
+    const { username, email, password } = input;
+
+    // Verificar se o usuário já existe
     const existingUser = await db.query.users.findFirst({
       where: (users) => eq(users.username, username) || eq(users.email, email)
     });
 
     if (existingUser) {
-      throw new HTTPException(409, { 
+      return {
+        success: false,
         message: "Username or email already exists"
-      });
+      };
     }
 
-    // Hash password and create user
+    // Hash da senha e criação do usuário
     const passwordHash = await hashPassword(password);
     
-    const result = await db.insert(users).values({
-      username,
-      email,
-      passwordHash
-    });
-    
-    const userId = Number(result.insertId);
-    
-    // Generate JWT token
-    const token = await createToken({
-      id: userId,
-      username: username
-    });
+    try {
+      const result = await db.insert(users).values({
+        username,
+        email,
+        passwordHash
+      });
+      
+      const userId = Number(result.insertId);
+      
+      // Gerar token JWT
+      const token = await createToken({
+        id: userId,
+        username: username
+      });
 
-    return c.json({
-      success: true,
-      message: "User registered successfully",
-      data: { id: userId, username: username },
-      token
-    }, 201);
-  } catch (error) {
-    if (error instanceof HTTPException) {
-      throw error;
+      return {
+        success: true,
+        message: "User registered successfully",
+        data: { id: userId, username },
+        token
+      };
+    } catch (error) {
+      console.error("User registration error:", error);
+      throw new Error("Failed to register user");
     }
-    
-    console.error("Registration error:", error);
-    throw new HTTPException(500, { 
-      message: "Failed to register user"
-    });
   }
-}
 
-export async function login(c: Context) {
-  const data = await c.req.json<LoginInput>();
-  const { username, password } = data;
+  /**
+   * Autentica um usuário existente
+   */
+  async loginUser(input: LoginUserInput): Promise<AuthResult> {
+    const { username, password } = input;
 
-  try {
-    // Find user
+    // Buscar usuário
     const user = await db.query.users.findFirst({
       where: (users) => eq(users.username, username)
     });
 
     if (!user) {
-      throw new HTTPException(401, { 
+      return {
+        success: false,
         message: "Invalid username or password"
-      });
+      };
     }
 
-    // Verify password
+    // Verificar senha
     const validPassword = await verifyPassword(password, user.passwordHash);
     if (!validPassword) {
-      throw new HTTPException(401, { 
+      return {
+        success: false,
         message: "Invalid username or password"
-      });
+      };
     }
 
-    // Generate JWT token
+    // Gerar token JWT
     const token = await createToken({
       id: user.id,
       username: user.username
     });
 
-    return c.json({
+    return {
       success: true,
       message: "Login successful",
       data: { id: user.id, username: user.username },
       token
+    };
+  }
+
+  /**
+   * Busca o perfil de um usuário
+   */
+  async getUserProfile(userId: number): Promise<AuthResult> {
+    const user = await db.query.users.findFirst({
+      where: (users) => eq(users.id, userId),
+      columns: {
+        id: true,
+        username: true,
+        email: true,
+        createdAt: true
+      }
     });
-  } catch (error) {
-    if (error instanceof HTTPException) {
-      throw error;
+
+    if (!user) {
+      return {
+        success: false,
+        message: "User not found"
+      };
     }
-    
-    console.error("Login error:", error);
-    throw new HTTPException(500, { 
-      message: "Failed to log in"
-    });
+
+    return {
+      success: true,
+      message: "Profile retrieved successfully",
+      data: user
+    };
   }
 }
 
-export const getProfile = async (c: Context) => {
-  try {
-    const userId = c.req.param("id");
-    const profile = await getUserProfile(userId);
-
-    if (!profile) {
-      return c.json({
-        message: "User not found",
-        success: false,
-      }, 404);
-    }
-
-    return c.json({
-      data: {
-        id: profile.id,
-        username: profile.username,
-        email: profile.email,
-        createdAt: profile.createdAt,
-      },
-      success: true,
-    });
-  } catch (error) {
-    console.error("Error fetching profile:", error);
-    return c.json({
-      message: "Internal Server Error",
-      success: false,
-    }, 500);
-  }
-};
+// Export singleton instance
+export const authService = new AuthService();
